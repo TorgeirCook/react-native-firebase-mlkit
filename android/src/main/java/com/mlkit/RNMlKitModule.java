@@ -140,8 +140,8 @@ public class RNMlKitModule extends ReactContextBaseJavaModule {
      */
     private WritableArray processDeviceResult(FirebaseVisionText firebaseVisionText) {
         WritableArray data = Arguments.createArray();
-        WritableMap info = Arguments.createMap();
-        WritableMap coordinates = Arguments.createMap();
+        WritableMap info;
+        WritableMap coordinates;
         List<FirebaseVisionText.TextBlock> blocks = firebaseVisionText.getTextBlocks();
 
         if (blocks.size() == 0) {
@@ -180,9 +180,8 @@ public class RNMlKitModule extends ReactContextBaseJavaModule {
 
     private WritableArray processCloudResult(FirebaseVisionText firebaseVisionText) {
         WritableArray data = Arguments.createArray();
-        WritableMap info = Arguments.createMap();
+        WritableMap info;
         WritableMap coordinates = Arguments.createMap();
-        WritableMap cornerPoints = Arguments.createMap();
         List<FirebaseVisionText.TextBlock> blocks = firebaseVisionText.getTextBlocks();
 
         if (blocks.size() == 0) {
@@ -193,44 +192,17 @@ public class RNMlKitModule extends ReactContextBaseJavaModule {
             List<FirebaseVisionText.Line> lines = blocks.get(i).getLines();
             info = Arguments.createMap();
             coordinates = Arguments.createMap();
-            cornerPoints = Arguments.createMap();
             FirebaseVisionText.TextBlock textBlock = blocks.get(i);
             Rect boundingBox = textBlock.getBoundingBox();
-            Point[] points = textBlock.getCornerPoints();
-            WritableArray topLeft = Arguments.createArray();
-            WritableArray topRight = Arguments.createArray();
-            WritableArray bottomRight = Arguments.createArray();
-            WritableArray bottomLeft = Arguments.createArray();
-
-            if (points != null) {
-                topLeft.pushInt(points[0].x);
-                topLeft.pushInt(points[0].y);
-
-                topRight.pushInt(points[1].x);
-                topRight.pushInt(points[1].y);
-
-                bottomRight.pushInt(points[2].x);
-                bottomRight.pushInt(points[2].y);
-
-                bottomLeft.pushInt(points[3].x);
-                bottomLeft.pushInt(points[3].y);
-            }
-
-
-            cornerPoints.putArray("topLeft", topLeft);
-            cornerPoints.putArray("topRight", topRight);
-            cornerPoints.putArray("bottomRight", bottomRight);
-            cornerPoints.putArray("bottomLeft", bottomLeft);
 
             coordinates.putInt("top", boundingBox.top);
             coordinates.putInt("bottom", boundingBox.bottom);
             coordinates.putInt("left", boundingBox.left);
             coordinates.putInt("right", boundingBox.right);
-            coordinates.putInt("width", boundingBox.width()); 
+            coordinates.putInt("width", boundingBox.width());
             coordinates.putInt("height", boundingBox.height());
 
             info.putMap("blockCoordinates", coordinates);
-            info.putMap("cornerPoints", cornerPoints);
             info.putString("blockText", blocks.get(i).getText());
 
             for (int j = 0; j < lines.size(); j++) {
