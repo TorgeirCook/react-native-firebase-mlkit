@@ -2,10 +2,11 @@
 buildscript {
     repositories {
         jcenter()
+        google()
     }
 
     dependencies {
-        classpath 'com.android.tools.build:gradle:1.3.1'
+        classpath 'com.android.tools.build:gradle:3.1.3'
     }
 }
 
@@ -33,4 +34,10 @@ dependencies {
     implementation 'com.google.firebase:firebase-core:+'
     implementation 'com.google.firebase:firebase-ml-vision:+'
     implementation 'com.facebook.react:react-native:+'
+}
+allprojects {
+    repositories {
+        jcenter()
+        google()
+    }
 }
