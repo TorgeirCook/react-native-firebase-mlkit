@@ -1,7 +1,6 @@
 
 package com.mlkit;
 
-import android.graphics.Point;
 import android.graphics.Rect;
 import android.support.annotation.NonNull;
 
@@ -16,20 +15,21 @@ import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
 import com.google.firebase.ml.vision.FirebaseVision;
-import com.google.firebase.ml.vision.text.FirebaseVisionCloudTextRecognizerOptions;
 import com.google.firebase.ml.vision.common.FirebaseVisionImage;
+import com.google.firebase.ml.vision.document.FirebaseVisionDocumentText;
+import com.google.firebase.ml.vision.document.FirebaseVisionDocumentTextRecognizer;
 import com.google.firebase.ml.vision.text.FirebaseVisionText;
 import com.google.firebase.ml.vision.text.FirebaseVisionTextRecognizer;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.ArrayList;
 
 public class RNMlKitModule extends ReactContextBaseJavaModule {
 
     private final ReactApplicationContext reactContext;
     private FirebaseVisionTextRecognizer textDetector;
     private FirebaseVisionTextRecognizer cloudTextDetector;
+    private FirebaseVisionDocumentTextRecognizer cloudDocumentDetector;
 
     public RNMlKitModule(ReactApplicationContext reactContext) {
         super(reactContext);
@@ -105,17 +105,25 @@ public class RNMlKitModule extends ReactContextBaseJavaModule {
         return this.cloudTextDetector;
     }
 
+    private FirebaseVisionDocumentTextRecognizer getCloudTextDocumentRecognizerInstance() {
+        if (this.cloudDocumentDetector == null) {
+            this.cloudDocumentDetector = FirebaseVision.getInstance().getCloudDocumentTextRecognizer();
+        }
+
+        return this.cloudDocumentDetector;
+    }
+
     @ReactMethod
     public void cloudTextRecognition(String uri, final Promise promise) {
         try {
-            FirebaseVisionTextRecognizer detector = this.getCloudTextRecognizerInstance();
+            FirebaseVisionDocumentTextRecognizer detector = this.getCloudTextDocumentRecognizerInstance();
             FirebaseVisionImage image = FirebaseVisionImage.fromFilePath(this.reactContext, android.net.Uri.parse(uri));
-            Task<FirebaseVisionText> result =
+            Task<FirebaseVisionDocumentText> result =
                     detector.processImage(image)
-                            .addOnSuccessListener(new OnSuccessListener<FirebaseVisionText>() {
+                            .addOnSuccessListener(new OnSuccessListener<FirebaseVisionDocumentText>() {
                                 @Override
-                                public void onSuccess(FirebaseVisionText firebaseVisionText) {
-                                    promise.resolve(processCloudResult(firebaseVisionText));
+                                public void onSuccess(FirebaseVisionDocumentText firebaseVisionDocumentText) {
+                                    promise.resolve(processCloudResult(firebaseVisionDocumentText));
                                 }
                             })
                             .addOnFailureListener(
@@ -132,12 +140,6 @@ public class RNMlKitModule extends ReactContextBaseJavaModule {
         }
     }
 
-    /**
-     * Converts firebaseVisionText into a map
-     *
-     * @param firebaseVisionText
-     * @return
-     */
     private WritableArray processDeviceResult(FirebaseVisionText firebaseVisionText) {
         WritableArray data = Arguments.createArray();
         WritableMap info;
@@ -178,46 +180,69 @@ public class RNMlKitModule extends ReactContextBaseJavaModule {
         return data;
     }
 
-    private WritableArray processCloudResult(FirebaseVisionText firebaseVisionText) {
-        WritableArray data = Arguments.createArray();
-        WritableMap info;
-        WritableMap coordinates = Arguments.createMap();
-        List<FirebaseVisionText.TextBlock> blocks = firebaseVisionText.getTextBlocks();
+    private WritableArray processCloudResult(FirebaseVisionDocumentText documentText) {
+        List<FirebaseVisionDocumentText.Block> blocks = documentText.getBlocks();
 
+
+        WritableArray blocksArr = Arguments.createArray();
         if (blocks.size() == 0) {
-            return data;
+            return blocksArr;
         }
 
-        for (int i = 0; i < blocks.size(); i++) {
-            List<FirebaseVisionText.Line> lines = blocks.get(i).getLines();
-            info = Arguments.createMap();
-            coordinates = Arguments.createMap();
-            FirebaseVisionText.TextBlock textBlock = blocks.get(i);
-            Rect boundingBox = textBlock.getBoundingBox();
+        for (FirebaseVisionDocumentText.Block block : blocks) {
+            String blockText = block.getText();
+            Float blockConfidence = block.getConfidence();
+            Rect blockFrame = block.getBoundingBox();
+            WritableMap blockMap = createMap(blockText, blockConfidence, blockFrame);
+            WritableArray paragraphArr = Arguments.createArray();
 
-            coordinates.putInt("top", boundingBox.top);
-            coordinates.putInt("bottom", boundingBox.bottom);
-            coordinates.putInt("left", boundingBox.left);
-            coordinates.putInt("right", boundingBox.right);
-            coordinates.putInt("width", boundingBox.width());
-            coordinates.putInt("height", boundingBox.height());
+            for (FirebaseVisionDocumentText.Paragraph paragraph : block.getParagraphs()) {
+                String paragraphText = paragraph.getText();
+                Float paragraphConfidence = paragraph.getConfidence();
+                Rect paragraphFrame = paragraph.getBoundingBox();
+                WritableMap paragraphMap = createMap(paragraphText, paragraphConfidence, paragraphFrame);
+//                WritableArray wordsArr = Arguments.createArray();
 
-            info.putMap("blockCoordinates", coordinates);
-            info.putString("blockText", blocks.get(i).getText());
+//                for (FirebaseVisionDocumentText.Word word : paragraph.getWords()) {
+//                    String wordText = word.getText();
+//                    Float wordConfidence = word.getConfidence();
+//                    Rect wordFrame = word.getBoundingBox();
+//                    WritableMap wordMap = createMap(wordText, wordConfidence, wordFrame);
+//                    WritableArray symbolsArr = Arguments.createArray();
+//
+//                    for (FirebaseVisionDocumentText.Symbol symbol : word.getSymbols()) {
+//                        String symbolText = symbol.getText();
+//                        Float symbolConfidence = symbol.getConfidence();
+//                        Rect symbolFrame = symbol.getBoundingBox();
+//                        WritableMap symbolMap = createMap(symbolText, symbolConfidence, symbolFrame);
+//                        symbolsArr.pushMap(symbolMap);
+//                    }
+//                    wordMap.putArray("symbols", symbolsArr);
+//                    wordsArr.pushMap(wordMap);
+//                }
+//                paragraphMap.putArray("words", wordsArr);
+                paragraphArr.pushMap(paragraphMap);
 
-            for (int j = 0; j < lines.size(); j++) {
-                List<FirebaseVisionText.Element> elements = lines.get(j).getElements();
-                info.putString("lineText", lines.get(j).getText());
-
-                for (int k = 0; k < elements.size(); k++) {
-                    info.putString("elementText", elements.get(k).getText());
-                }
             }
-
-            data.pushMap(info);
+            blockMap.putArray("paragraphs", paragraphArr);
+            blocksArr.pushMap(blockMap);
         }
+        return blocksArr;
+    }
 
-        return data;
+    private WritableMap createMap(String text, Float confidence, Rect frame) {
+        WritableMap map = Arguments.createMap();
+        WritableMap rectMap = Arguments.createMap();
+        map.putString("text", text);
+        map.putDouble("confidence", confidence);
+        rectMap.putInt("bottom", frame.bottom);
+        rectMap.putInt("right", frame.right);
+        rectMap.putInt("left", frame.left);
+        rectMap.putInt("top", frame.top);
+        rectMap.putInt("width", frame.width());
+        rectMap.putInt("height", frame.height());
+        map.putMap("coordinates", rectMap);
+        return map;
     }
 
 
