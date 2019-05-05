@@ -4,6 +4,7 @@ package com.mlkit;
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.Rect;
+import android.hardware.Camera;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
@@ -27,8 +28,7 @@ import com.google.android.gms.tasks.Task;
 import com.google.firebase.ml.vision.FirebaseVision;
 import com.google.firebase.ml.vision.common.FirebaseVisionImage;
 import com.google.firebase.ml.vision.common.FirebaseVisionImageMetadata;
-import com.google.firebase.ml.vision.document.FirebaseVisionDocumentText;
-import com.google.firebase.ml.vision.document.FirebaseVisionDocumentTextRecognizer;
+import com.google.firebase.ml.vision.text.FirebaseVisionCloudTextRecognizerOptions;
 import com.google.firebase.ml.vision.text.FirebaseVisionText;
 import com.google.firebase.ml.vision.text.FirebaseVisionTextRecognizer;
 
@@ -36,12 +36,14 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.List;
 
 import androidx.annotation.RequiresApi;
 
 import static android.content.Context.CAMERA_SERVICE;
-import static android.hardware.Camera.*;
+import static android.hardware.Camera.getCameraInfo;
+import static android.hardware.Camera.getNumberOfCameras;
 
 public class RNMlKitModule extends ReactContextBaseJavaModule {
 
@@ -58,7 +60,6 @@ public class RNMlKitModule extends ReactContextBaseJavaModule {
     private final ReactApplicationContext reactContext;
     private FirebaseVisionTextRecognizer textDetector;
     private FirebaseVisionTextRecognizer cloudTextDetector;
-    private FirebaseVisionDocumentTextRecognizer cloudDocumentDetector;
 
     public RNMlKitModule(ReactApplicationContext reactContext) {
         super(reactContext);
@@ -128,18 +129,13 @@ public class RNMlKitModule extends ReactContextBaseJavaModule {
 
     private FirebaseVisionTextRecognizer getCloudTextRecognizerInstance() {
         if (this.cloudTextDetector == null) {
-            this.cloudTextDetector = FirebaseVision.getInstance().getCloudTextRecognizer();
+            FirebaseVisionCloudTextRecognizerOptions options = new FirebaseVisionCloudTextRecognizerOptions.Builder()
+                    .setLanguageHints(Arrays.asList("en"))
+                    .build();
+            this.cloudTextDetector = FirebaseVision.getInstance().getCloudTextRecognizer(options);
         }
 
         return this.cloudTextDetector;
-    }
-
-    private FirebaseVisionDocumentTextRecognizer getCloudTextDocumentRecognizerInstance() {
-        if (this.cloudDocumentDetector == null) {
-            this.cloudDocumentDetector = FirebaseVision.getInstance().getCloudDocumentTextRecognizer();
-        }
-
-        return this.cloudDocumentDetector;
     }
 
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
@@ -153,16 +149,16 @@ public class RNMlKitModule extends ReactContextBaseJavaModule {
                     .setFormat(FirebaseVisionImageMetadata.IMAGE_FORMAT_NV21)
                     .setRotation(rotation)
                     .build();
-            FirebaseVisionDocumentTextRecognizer detector = this.getCloudTextDocumentRecognizerInstance();
             byte[] bytes = getBytes(uri);
             FirebaseVisionImage image = FirebaseVisionImage.fromByteBuffer(ByteBuffer.wrap(bytes), metadata);
-//            FirebaseVisionImage image = FirebaseVisionImage.fromFilePath(this.reactContext, android.net.Uri.parse(uri));
-            Task<FirebaseVisionDocumentText> result =
+
+            FirebaseVisionTextRecognizer detector = this.getCloudTextRecognizerInstance();
+            Task<FirebaseVisionText> result =
                     detector.processImage(image)
-                            .addOnSuccessListener(new OnSuccessListener<FirebaseVisionDocumentText>() {
+                            .addOnSuccessListener(new OnSuccessListener<FirebaseVisionText>() {
                                 @Override
-                                public void onSuccess(FirebaseVisionDocumentText firebaseVisionDocumentText) {
-                                    promise.resolve(processCloudResult(firebaseVisionDocumentText));
+                                public void onSuccess(FirebaseVisionText firebaseVisionText) {
+                                    promise.resolve(processCloudResult(firebaseVisionText));
                                 }
                             })
                             .addOnFailureListener(
@@ -179,6 +175,12 @@ public class RNMlKitModule extends ReactContextBaseJavaModule {
         }
     }
 
+    /**
+     * Converts firebaseVisionText into a map
+     *
+     * @param firebaseVisionText
+     * @return
+     */
     private WritableArray processDeviceResult(FirebaseVisionText firebaseVisionText) {
         WritableArray data = Arguments.createArray();
         WritableMap info;
@@ -219,69 +221,51 @@ public class RNMlKitModule extends ReactContextBaseJavaModule {
         return data;
     }
 
-    private WritableArray processCloudResult(FirebaseVisionDocumentText documentText) {
-        List<FirebaseVisionDocumentText.Block> blocks = documentText.getBlocks();
+    private WritableArray processCloudResult(FirebaseVisionText firebaseVisionText) {
+        WritableArray data = Arguments.createArray();
+        WritableMap info;
+        WritableMap coordinates = Arguments.createMap();
+        List<FirebaseVisionText.TextBlock> blocks = firebaseVisionText.getTextBlocks();
 
-
-        WritableArray blocksArr = Arguments.createArray();
         if (blocks.size() == 0) {
-            return blocksArr;
+            return data;
         }
 
-        for (FirebaseVisionDocumentText.Block block : blocks) {
-            String blockText = block.getText();
-            Float blockConfidence = block.getConfidence();
-            Rect blockFrame = block.getBoundingBox();
-            WritableMap blockMap = createMap(blockText, blockConfidence, blockFrame);
-            WritableArray paragraphArr = Arguments.createArray();
+        for (int i = 0; i < blocks.size(); i++) {
+            List<FirebaseVisionText.Line> lines = blocks.get(i).getLines();
+            info = Arguments.createMap();
+            coordinates = Arguments.createMap();
+            FirebaseVisionText.TextBlock block = blocks.get(i);
+            Rect boundingBox = block.getBoundingBox();
 
-            for (FirebaseVisionDocumentText.Paragraph paragraph : block.getParagraphs()) {
-                String paragraphText = paragraph.getText();
-                Float paragraphConfidence = paragraph.getConfidence();
-                Rect paragraphFrame = paragraph.getBoundingBox();
-                WritableMap paragraphMap = createMap(paragraphText, paragraphConfidence, paragraphFrame);
-//                WritableArray wordsArr = Arguments.createArray();
+            coordinates.putDouble("confidenceZ", block.getConfidence());
+            coordinates.putInt("top", boundingBox.top);
+            coordinates.putInt("bottom", boundingBox.bottom);
+            coordinates.putInt("left", boundingBox.left);
+            coordinates.putInt("right", boundingBox.right);
+            coordinates.putInt("width", boundingBox.width());
+            coordinates.putInt("height", boundingBox.height());
 
-//                for (FirebaseVisionDocumentText.Word word : paragraph.getWords()) {
-//                    String wordText = word.getText();
-//                    Float wordConfidence = word.getConfidence();
-//                    Rect wordFrame = word.getBoundingBox();
-//                    WritableMap wordMap = createMap(wordText, wordConfidence, wordFrame);
-//                    WritableArray symbolsArr = Arguments.createArray();
-//
-//                    for (FirebaseVisionDocumentText.Symbol symbol : word.getSymbols()) {
-//                        String symbolText = symbol.getText();
-//                        Float symbolConfidence = symbol.getConfidence();
-//                        Rect symbolFrame = symbol.getBoundingBox();
-//                        WritableMap symbolMap = createMap(symbolText, symbolConfidence, symbolFrame);
-//                        symbolsArr.pushMap(symbolMap);
-//                    }
-//                    wordMap.putArray("symbols", symbolsArr);
-//                    wordsArr.pushMap(wordMap);
-//                }
-//                paragraphMap.putArray("words", wordsArr);
-                paragraphArr.pushMap(paragraphMap);
+            info.putMap("blockCoordinates", coordinates);
+            info.putString("blockText", blocks.get(i).getText());
 
+            for (int j = 0; j < lines.size(); j++) {
+                List<FirebaseVisionText.Element> elements = lines.get(j).getElements();
+                FirebaseVisionText.Line line = lines.get(j);
+                info.putString("lineText", line.getText());
+                info.putDouble("lineConfidence", line.getConfidence());
+
+                for (int k = 0; k < elements.size(); k++) {
+                    FirebaseVisionText.Element element = elements.get(k);
+                    info.putString("elementText", element.getText());
+                    info.putDouble("elementConfidence", element.getConfidence());
+                }
             }
-            blockMap.putArray("paragraphs", paragraphArr);
-            blocksArr.pushMap(blockMap);
-        }
-        return blocksArr;
-    }
 
-    private WritableMap createMap(String text, Float confidence, Rect frame) {
-        WritableMap map = Arguments.createMap();
-        WritableMap rectMap = Arguments.createMap();
-        map.putString("text", text);
-        map.putDouble("confidence", confidence);
-        rectMap.putInt("bottom", frame.bottom);
-        rectMap.putInt("right", frame.right);
-        rectMap.putInt("left", frame.left);
-        rectMap.putInt("top", frame.top);
-        rectMap.putInt("width", frame.width());
-        rectMap.putInt("height", frame.height());
-        map.putMap("coordinates", rectMap);
-        return map;
+            data.pushMap(info);
+        }
+
+        return data;
     }
 
     /**
@@ -345,9 +329,9 @@ public class RNMlKitModule extends ReactContextBaseJavaModule {
         int cameraId = -1;
         int numberOfCameras = getNumberOfCameras();
         for (int i = 0; i < numberOfCameras; i++) {
-            CameraInfo info = new CameraInfo();
+            Camera.CameraInfo info = new Camera.CameraInfo();
             getCameraInfo(i, info);
-            if (info.facing == CameraInfo.CAMERA_FACING_BACK) {
+            if (info.facing == Camera.CameraInfo.CAMERA_FACING_BACK) {
                 Log.d(TAG, "Camera found");
                 cameraId = i;
                 break;
